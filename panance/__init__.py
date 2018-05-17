@@ -34,6 +34,7 @@ class Panance(ccxt.binance):
         :param str secret: api secret key
         :param dict config: ccxt.binance configuration dict
         """
+        self._LIMITS = [5, 10, 20, 50, 100, 500, 1000]
         if config is None or not isinstance(config, dict):
             config = dict(verbose=False, enableRateLimit=True, timeout=15000)
 
@@ -53,6 +54,61 @@ class Panance(ccxt.binance):
         self.usd_symbols = [k for k in self.symbols if k[-5:] in str('/' + self.usd)]
         self.usd_currencies = [k.split('/')[0] for k in self.usd_symbols]
 
+    def _check_limit(self, limit):
+        if limit and int(limit) in self._LIMITS:
+            return int(limit)
+        str_limits = ', '.join([*map(str, self._LIMITS)])
+        raise ValueError('Invalid limit: {}\nAccepted values: {}'.format(str(limit), str_limits))
+
+    def _get_amount(self, coin, amount):
+        coin = self._check(coin)
+        if amount and isinstance(amount, str):
+            amount = str(amount).lower()
+
+            balance = self.get_balances(coin=coin)
+            if amount in 'max':
+                percent = 1.0
+            elif len(amount) > 1 and amount[-1] in '%':
+                percent = float(amount[:-1]) / 100.
+            else:
+                raise ValueError('Invalid amount.')
+
+            if all((balance is not None, not balance.empty)):
+                amount = balance['total'] * percent
+            else:
+                raise ValueError('Not enough balance for {} currency.'.format(coin))
+
+        if amount and isinstance(amount, float):
+            amount = round(amount, 8)
+        else:
+            raise ValueError('Invalid amount.')
+        return amount
+
+    def _check(self, v):
+        """
+        Currency / Symbol validator.
+
+        :param str v: currency or symbol to check
+        :return str: currency or symbol
+        """
+        v = str(v).upper()
+        if v in self.symbols or v in self.currencies:
+            return v
+        else:
+            raise ValueError('{} is not a valid currency or symbol'.format(v))
+
+    def _get_price(self, symbol, price):
+        if price is not None:
+            if str(price).lower() in ['ask', 'bid']:
+                field = str(price).lower()
+                return self.get_depth(symbol, limit=5)[field][0]
+            elif isinstance(price, float):
+                return round(price, 8)
+            else:
+                raise ValueError('Invalid price')
+        else:
+            raise ValueError('Invalid price')
+
     def _get_since(self, timeframe='15m', limit=100):
         """
         Return number of seconds resulting from:
@@ -62,6 +118,7 @@ class Panance(ccxt.binance):
         :param int limit: limit of timeframes
         :return int: number of seconds for limit and timeframe
         """
+        limit = self._check_limit(limit)
         timeframe_mills = self.parse_timeframe(timeframe) * 1000.0
         return int(ccxt.Exchange.milliseconds() - timeframe_mills * limit)
 
@@ -146,7 +203,7 @@ class Panance(ccxt.binance):
         :param int limit: result rows limit
         :return pd.DataFrame: OHLC data for specific symbol and timeframe
         """
-
+        limit = self._check_limit(limit)
         data = self.fetch_ohlcv(self._check(symbol), timeframe=timeframe,
                                 since=self._get_since(timeframe=timeframe, limit=limit))
         df = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
@@ -188,6 +245,7 @@ class Panance(ccxt.binance):
         :param str side: accepted values: "buy", "sell", None
         :return pd.DataFrame: last symbol trades
         """
+        limit = self._check_limit(limit)
         raw = self.fetch_trades(self._check(symbol), limit=limit)
         return self._parse_trades(raw, side) if raw else pd.DataFrame()
 
@@ -233,6 +291,7 @@ class Panance(ccxt.binance):
         :param str side: accepted values: "buy", "sell", None
         :return pd.DataFrame: last user trades for a symbol
         """
+        limit = self._check_limit(limit)
         raw = self.fetch_my_trades(self._check(symbol), limit=limit)
         return self._parse_trades(raw, side) if raw else pd.DataFrame()
 
@@ -300,13 +359,14 @@ class Panance(ccxt.binance):
         else:
             return 0.0
 
-    def get_depth(self, symbol, limit=20):
+    def get_depth(self, symbol, limit=5):
         """
         Get order book data for a symbol.
         :param str symbol: a valid slash separated trade pair
         :param limit: result rows limit
         :return pd.DataFrame:
         """
+        limit = self._check_limit(limit)
         raw = self.fetch_order_book(self._check(symbol), limit=limit)
         data = pd.DataFrame(raw)
         rows = pd.DataFrame(data['asks'] + data['bids'])
@@ -331,22 +391,67 @@ class Panance(ccxt.binance):
         :param int limit: result rows limit
         :return pd.Series: bids data from order book for a symbol
         """
+        limit = self._check_limit(limit)
         raw = self.fetch_order_book(self._check(symbol), limit=limit)
         return pd.DataFrame(raw['bids'])
+
+    def market_buy(self, symbol, amount='max'):
+        """
+        Place a market buy order.
+
+        :param str symbol: a valid trade pair symbol
+        :param str, float amount: quote amount to buy or sell or 'max' get the max amount from balance
+        :return dict: order info
+        """
+        symbol = self._check(symbol)
+        return self.create_market_buy_order(symbol, amount=amount)
+
+    def market_sell(self, symbol, amount='max'):
+        """
+        Place a market sell order.
+
+        :param str symbol: a valid trade pair symbol
+        :param str, float amount: quote amount to buy or sell or 'max' get the max amount from balance
+        :return dict: order info
+        """
+        symbol = self._check(symbol)
+        return self.create_market_buy_order(symbol, amount=amount)
+
+    def limit_buy(self, symbol, amount='max', price='ask'):
+        """
+        Place a limit buy order.
+
+        :param str symbol: a valid trade pair symbol
+        :param str, float amount: quote amount to buy or sell or 'max' get the max amount from balance
+        :param float price: valid price or None for a market order
+        :return dict: order info
+        """
+        symbol = self._check(symbol)
+
+        amount = self._get_amount(symbol, amount)
+        assert amount is not None and isinstance(amount, float)
+        price = self._get_price(symbol, price)
+        assert amount is not None and isinstance(amount, float)
+
+        return self.create_limit_buy_order(symbol, amount, price)
+
+    def limit_sell(self, symbol, amount='max', price='bid'):
+        """
+        Place a limit sell order.
+
+        :param str symbol: a valid trade pair symbol
+        :param str, float amount: quote amount to buy or sell or 'max' get the max amount from balance
+        :param float price: valid price or None for a market order
+        :return dict: order info
+        """
+        symbol = self._check(symbol)
+        amount = self._get_amount(symbol, amount)
+        assert amount is not None and isinstance(amount, float)
+        price = self._get_price(symbol, price)
+        assert price is not None and isinstance(price, float)
+        return self.create_limit_sell_order(symbol, amount, price)
 
     get_orderbook = get_depth
     get_book = get_depth
     get_obook = get_depth
 
-    def _check(self, v):
-        """
-        Currency / Symbol validator.
-
-        :param str v: currency or symbol to check
-        :return str: currency or symbol
-        """
-        v = str(v).upper()
-        if v in self.symbols or v in self.currencies:
-            return v
-        else:
-            raise ValueError('{} is not a valid currency or symbol'.format(v))
