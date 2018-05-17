@@ -10,10 +10,11 @@ import ccxt
 import numpy as np
 import pandas as pd
 
-from utils import cnum, is_empty
+from panance.utils import cnum, is_empty
 
 BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(BASE_DIR)
+
 pd.options.display.precision = 8
 warnings.filterwarnings(action='ignore', category=FutureWarning)
 
@@ -454,4 +455,3 @@ class Panance(ccxt.binance):
     get_orderbook = get_depth
     get_book = get_depth
     get_obook = get_depth
-
