@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='panance',
-    version='0.1.1',
+    version='0.1.2',
     packages=find_packages(exclude=['doc*', 'test*', 'venv*']),
     url='https://github.com/havocesp/panance',
     license='MIT',
