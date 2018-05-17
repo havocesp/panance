@@ -381,7 +381,7 @@ class Panance(ccxt.binance):
         :return pd.Series: asks data from order book for a symbol
         """
         raw = self.fetch_order_book(self._check(symbol), limit=limit)
-        return pd.DataFrame(raw['asks'])
+        return pd.DataFrame(raw['asks'], columns=['ask', 'amount'])
 
     def get_bids(self, symbol, limit=10):
         """
@@ -393,7 +393,7 @@ class Panance(ccxt.binance):
         """
         limit = self._check_limit(limit)
         raw = self.fetch_order_book(self._check(symbol), limit=limit)
-        return pd.DataFrame(raw['bids'])
+        return pd.DataFrame(raw['bids'], columns=['bid', 'amount'])
 
     def market_buy(self, symbol, amount='max'):
         """
@@ -423,7 +423,7 @@ class Panance(ccxt.binance):
 
         :param str symbol: a valid trade pair symbol
         :param str, float amount: quote amount to buy or sell or 'max' get the max amount from balance
-        :param float price: valid price or None for a market order
+        :param str, float price: valid price or None for a market order
         :return dict: order info
         """
         symbol = self._check(symbol)
@@ -441,7 +441,7 @@ class Panance(ccxt.binance):
 
         :param str symbol: a valid trade pair symbol
         :param str, float amount: quote amount to buy or sell or 'max' get the max amount from balance
-        :param float price: valid price or None for a market order
+        :param str, float price: valid price or None for a market order
         :return dict: order info
         """
         symbol = self._check(symbol)
