@@ -39,7 +39,7 @@ class Panance(ccxt.binance):
         if config is None or not isinstance(config, dict):
             config = dict(verbose=False, enableRateLimit=True, timeout=15000)
 
-        if not 'apiKey' in config or not 'secret' in config:
+        if 'apiKey' not in config or 'secret' not in config:
             if [k for k in os.environ if 'BINANCE_KEY' in k and 'BINANCE_SECRET' in 'k']:
                 config.update(apiKey=os.getenv('BINANCE_KEY'), secret=os.getenv('BINANCE_SECRET'))
             elif not is_empty(key) and not is_empty(secret):
@@ -145,6 +145,7 @@ class Panance(ccxt.binance):
              average
              baseVolume
              quoteVolume
+        :param list symbols: list of trade pairs
         :param str market: accepted values: BTC, USDT
         :return pd.DataFrame: ticker data filtered by market (if set)
         """
@@ -237,7 +238,54 @@ class Panance(ccxt.binance):
         else:
             return df.fillna(0.0)
 
-    def get_trades(self, symbol, limit=100, side=None):
+    def get_aggregated_trades(self, symbol, from_id=None, start=None, end=None, limit=500):
+        """
+        Get aggregated trades for a symbol.
+
+        :param str symbol: trade pair
+        :param int from_id:	get trades from specific id
+        :param int start: unix datetime starting date
+        :param int end:	unix datetime  ending date
+        :param int limit: row limits, max. 500 (default 500)
+        :return pd.DataFrame: aggregated trades as a Pandas DataFrame
+        """
+        import requests as req
+        url = 'https://api.binance.com/api/v1/aggTrades?symbol={}'.format(symbol.replace('/', '').upper())
+        if from_id and isinstance(from_id, int):
+            url += '&fromId={:d}'.format(from_id)
+        else:
+            if start and isinstance(start, (int, float)):
+                start = int(start)
+                url += '&startTime={:d}'.format(start)
+
+            if end and isinstance(end, (int, float)):
+                end = int(end)
+                url += '&startTime={:d}'.format(end)
+        if limit != 500:
+            url += '&limit={:d}'.format(limit)
+        response = req.get(url)
+        if response.ok:
+            raw = response.json()
+            cols = ['price', 'amount', 'first_id', 'last_id', 'timestamp']
+            df = pd.DataFrame([[r['p'], r['q'], r['f'], r['l'], r['T']] for r in raw], columns=cols).dropna(axis=1,
+                                                                                                            how='any')
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df['price'] = df['price'].apply(float)
+            df['amount'] = df['amount'].apply(float)
+            df['first_id'] = df['first_id'].apply(int)
+            df['last_id'] = df['last_id'].apply(int)
+            f = df['first_id'][0]
+            df.set_index('timestamp', inplace=True)
+            grouped = pd.DataFrame()
+            grouped['price'] = df.price.groupby(pd.Grouper(freq='1s')).mean().apply(round, args=(8,))
+            grouped['amount'] = df.amount.groupby(pd.Grouper(freq='1s')).mean().apply(round, args=(3,))
+            grouped['total'] = (grouped['price'] * grouped['amount']).apply(round, args=(8,))
+            return grouped.dropna(axis=1, how='all').bfill()
+        else:
+            response.raise_for_status()
+        # return pd.DataFrame(.json())
+
+    def get_trades(self, symbol, limit=100, side=None, fromId=None):
         """
         Get last symbol trades.
 
@@ -247,8 +295,21 @@ class Panance(ccxt.binance):
         :return pd.DataFrame: last symbol trades
         """
         limit = self._check_limit(limit)
-        raw = self.fetch_trades(self._check(symbol), limit=limit)
-        return self._parse_trades(raw, side) if raw else pd.DataFrame()
+        result = pd.DataFrame()
+        if fromId and isinstance(fromId, int):
+            raw = self.fetch_trades(self._check(symbol), limit=limit, params=dict(fromId=fromId))
+            result = self._parse_trades(raw, side)
+        else:
+            if limit > 0:
+                while limit > 500:
+                    l = limit
+                    if limit - 500 > 500:
+                        limit -= 500
+                    else:
+                        limit = 0
+                    raw = self.fetch_trades(self._check(symbol), limit=l)
+                    result = result.join(self._parse_trades(raw, side))
+        return result
 
     def _parse_trades(self, raw, side=None):
         """
@@ -417,13 +478,13 @@ class Panance(ccxt.binance):
         :return dict: order info
         """
         symbol = self._check(symbol)
-
-        amount = self._get_amount(symbol, amount)
+        base, quote = symbol.split('/')
+        amount = self._get_amount(quote, amount)
         assert amount is not None and isinstance(amount, float)
         price = self._get_price(symbol, price)
         assert amount is not None and isinstance(amount, float)
 
-        return self.create_limit_buy_order(symbol, amount, price)
+        return self.create_limit_buy_order(symbol, amount / price, price)
 
     def limit_sell(self, symbol, amount='max', price='bid'):
         """
@@ -435,7 +496,8 @@ class Panance(ccxt.binance):
         :return dict: order info
         """
         symbol = self._check(symbol)
-        amount = self._get_amount(symbol, amount)
+        base, quote = symbol.split('/')
+        amount = self._get_amount(base, amount)
         assert amount is not None and isinstance(amount, float)
         price = self._get_price(symbol, price)
         assert price is not None and isinstance(price, float)
@@ -444,3 +506,21 @@ class Panance(ccxt.binance):
     get_orderbook = get_depth
     get_book = get_depth
     get_obook = get_depth
+
+
+if __name__ == '__main__':
+    api = Panance()
+    trades = api.get_aggregated_trades('EOS/BTC', limit=500)  # type: pd.DataFrame
+    if not trades.empty:
+        # price = trades['price'].bfill()
+        # df = pd.DataFrame()
+        # open('eosbtc_trades.csv', mode='wt')
+        df = pd.read_csv('eosbtc_trades.csv')
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.set_index('date')
+        d = pd.concat([df, trades]).drop_duplicates().sort_index()
+        if not d.empty:
+            print(d.to_csv('eosbtc_trades.csv', index_label='date', mode='w', header=True))
+        # print(len(df))
+        # print(f, l)
+        # print(api.get_aggregated_trades('EOSBTC', from_id=f))
