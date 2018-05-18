@@ -11,4 +11,4 @@ key = os.getenv('BINANCE_KEY')
 secret = os.getenv('BINANCE_SECRET')
 api = Panance(key=key, secret=secret)
 
-print(api.get_weighted_average_cost('ZIL/BTC'))
+print(api.get_weighted_average_cost('FUN/BTC'))
