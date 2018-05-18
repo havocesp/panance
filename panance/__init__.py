@@ -305,27 +305,12 @@ class Panance(ccxt.binance):
         coin = self._check(coin)
         btc_symbol = '{}/BTC'.format(coin)
         balance = self.get_balances(coin, detailed=True)
-        print(balance)
-        if all((balance is not None, not balance.empty)) and balance['btc_total'] > 0.0:
 
-            trades = self.get_user_trades(btc_symbol, 24)  # type: pd.DataFrame
-            trades = trades.query('side == "buy"')
+        if all((balance is not None, not balance.empty)) and balance['total_btc'] > 0.0:
 
-            if all((trades is not None, not trades.empty)):
-                coin_total = balance.total
-                prices, amounts = list(), list()
-                for idx, trd in trades.iterrows():
-                    if (coin_total - trd['amount']) <= 0.0:
-                        prices.append(trd['price'])
-                        amounts.append(coin_total)
-                        break
-                    else:
-                        prices.append(trd['price'])
-                        amounts.append(trd['amount'])
-                        coin_total -= trd['amount']
-                real_cost = cnum(np.average(prices, weights=amounts), 8)
-                coin_ticker = self.get_ticker(btc_symbol).last
-                return cnum((coin_ticker * balance.total) - (real_cost * balance.total), 8), cnum(real_cost, 8)
+            real_cost = self.get_weighted_average_cost(btc_symbol)
+            coin_ticker = self.get_ticker(btc_symbol)['last']
+            return cnum((coin_ticker * balance.total) - (real_cost * balance.total), 8), cnum(real_cost, 8)
         else:
             return 0.0, 0.0
 
@@ -345,8 +330,10 @@ class Panance(ccxt.binance):
             if not is_empty(last_symbol_user_trades):
                 amounts = list()
                 balance = balances['total']
-
-                last_symbol_user_trades = last_symbol_user_trades.sort_values(by='id', ascending=False)
+                if 'id' in last_symbol_user_trades:
+                    last_symbol_user_trades = last_symbol_user_trades.sort_values(ascending=False)
+                else:
+                    last_symbol_user_trades = last_symbol_user_trades.sort_index(ascending=False)
                 for amount in last_symbol_user_trades.query('side == "buy"').amount:
                     if balance - amount <= 0.0:
                         amounts.append(balance)
@@ -357,6 +344,8 @@ class Panance(ccxt.binance):
                 prices = last_symbol_user_trades.price.values[:len(amounts)]
 
                 return cnum(np.average(prices, weights=amounts), 8)
+            else:
+                return 0.0
         else:
             return 0.0
 

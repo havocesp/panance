@@ -2,7 +2,7 @@
 Python 3 Binance API wrapper built over Pandas and CCXT Libraries
 
 * **Author**: Daniel J. Umpierrez
-* **Version**: 0.1.4
+* **Version**: 0.1.5
 
 # Requirements
  * python >= 3.6
@@ -10,6 +10,9 @@ Python 3 Binance API wrapper built over Pandas and CCXT Libraries
  * ccxt
 
 # Changelog
+## Version 0.1.5
+ * Deleted repeated code for get_profit method
+ * Minor fixes
 ## Version 0.1.4
  * Minor fix
 ## Version 0.1.3
