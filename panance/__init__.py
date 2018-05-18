@@ -339,12 +339,12 @@ class Panance(ccxt.binance):
         symbol = self._check(symbol)
         coin, exchange = symbol.split('/')
         balances = self.get_balances(coin=coin, detailed=True)
-        if all((balances is not None, not balances.empty)) and balances['btc_total'] > 0.0:
+        if all((balances is not None, not balances.empty)) and balances['total_btc'] > 0.0:
             last_symbol_user_trades = self.get_user_trades(symbol)
             last_symbol_user_trades.dropna(axis=1, inplace=True)
             if not is_empty(last_symbol_user_trades):
                 amounts = list()
-                balance = balances[coin]['total']
+                balance = balances['total']
 
                 last_symbol_user_trades = last_symbol_user_trades.sort_values(by='id', ascending=False)
                 for amount in last_symbol_user_trades.query('side == "buy"').amount:
