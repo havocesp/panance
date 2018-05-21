@@ -1,15 +1,18 @@
 # -*- coding:utf-8 -*-
 from setuptools import setup, find_packages
 
+from panance import (__version__, __author__, __appname__, __dependencies__, __description__, __license__, __site__,
+                     __email__)
+
 setup(
-    name='panance',
-    version='0.1.5',
+    name=__appname__,
+    version=__version__,
     packages=find_packages(exclude=['doc*', 'test*', 'venv*']),
-    url='https://github.com/havocesp/panance',
-    license='MIT',
-    author='Daniel J. Umpierrez',
-    author_email='',
-    description='Python 3 Binance API wrapper built over Pandas Library',
+    url=__site__,
+    license=__license__,
+    author=__author__,
+    author_email=__email__,
+    description=__description__,
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
@@ -17,5 +20,5 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7'
-    ], install_requires=['pandas', 'ccxt']
+    ], install_requires=__dependencies__
 )

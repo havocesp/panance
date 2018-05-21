@@ -9,7 +9,7 @@ pd.options.display.precision = 8
 
 api = Panance()
 
-pprint(api.get_tickers(symbols=['BTC/USDT', 'ETH/USDT']))
+pprint(api.get_tickers(market='BTC').T.describe())
 # pprint(api.get_tickers(market='BTC'))
 # pprint(api.get_tickers(market='USDT'))
 # pprint(api.get_tickers(market='USDT')['BTC/USDT'])
