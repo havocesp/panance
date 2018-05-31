@@ -7,6 +7,7 @@ import os
 import sys
 import time as tm
 import warnings
+from collections import Iterable
 from functools import partial
 
 import ccxt
@@ -27,18 +28,19 @@ warnings.filterwarnings(action='ignore', category=FutureWarning)
 __version__ = '0.1.6'
 __author__ = 'Daniel J. Umpierrez'
 __license__ = 'MIT'
-__appname__ = 'panance'
+__package__ = 'panance'
 __description__ = 'Python 3 Binance API wrapper built over Pandas Library'
 __site__ = 'https://github.com/havocesp/panance'
 __email__ = 'umpierrez@pm.me'
-__dependencies__ = ['ccxt', 'pandas', '']
-__all__ = ['Panance']
+__requirements__ = ['ccxt', 'pandas', 'numpy', 'requests', 'decorator']
+__all__ = ['Panance', '__package__', '__version__', '__author__', '__site__',
+           '__description__', '__email__', '__requirements__', '__license__']
 
 _LIMITS = [5, 10, 20, 50, 100, 500, 1000]
 
 
 @decorator
-def argkeeper(fn, *args, **kwargs):
+def checker(fn, *args, **kwargs):
     """
     Param validator decorator.
 
@@ -48,7 +50,7 @@ def argkeeper(fn, *args, **kwargs):
     :return:
     """
     args = [v for v in args]
-    self = args.pop(0)
+    self = args.pop(0)  # type: ccxt.binance
 
     try:
         sig = inspect.signature(fn)
@@ -60,28 +62,31 @@ def argkeeper(fn, *args, **kwargs):
     detected_params = [f for f in ['currency', 'limit', 'coin', 'symbol', 'symbols'] if f in param_names]
     if len(detected_params):
 
-        def get_value(v):
-            value = kwargs.get(v)
-            if v in param_names and value is None:
-                arg_position = param_names.index(v)
+        def get_value(_v):
+            value = kwargs.get(_v)
+            if _v in param_names and value is None:
+                arg_position = param_names.index(_v)
                 value = args[arg_position - 1]
             return value
 
         for dp in detected_params:
             param_value = get_value(dp)
-            if param_value is None: continue
+            if param_value is None:
+                continue
             if 'limit' in dp and not str(param_value) in [l for l in map(str, _LIMITS)]:
                 str_limits = ','.join([l for l in map(str, _LIMITS)])
                 raise ValueError('Invalid limit: {}\nAccepted values: {}'.format(str(param_value), str_limits))
             elif dp in ['currency', 'coin', 'symbol', 'symbols']:
-                if 'symbols' not in dp:
+                if 'symbols' not in dp and not isinstance(dp, Iterable):
                     param_value = [param_value]
                 symbol_list = [str(s).upper() for s in param_value]
+
                 if self.symbols is None or not len(self.symbols):
-                    self.load_markets()
-                if not all([s in self.currencies or s in self.symbols for s in symbol_list]):
+                    self.load_markets(True)
+
+                if not all([any((s not in self.currencies, s not in self.symbols)) for s in symbol_list]):
                     raise ValueError(
-                        'There is a not a valid currency or symbol in function params: {}'.format(symbol_list))
+                            'There is a not a valid currency or symbol in function params: {}'.format(symbol_list))
 
     return fn(self, *args, **kwargs)
 
@@ -110,17 +115,18 @@ class Panance(ccxt.binance):
             elif not is_empty(key) and not is_empty(secret):
                 config.update(apiKey=key, secret=secret)
 
-        super().__init__(config=config)
+        super(Panance, self).__init__(config=config)
 
         self.load_time_difference()
         self.markets = self.load_markets()
         self.symbols = [k for k in self.markets if k[-5:] in str('/' + self.usd) or k[-4:] in '/BTC']
-        self.currencies = [*{k.split('/')[0] for k in self.symbols}, self.usd]
+        self.currencies = [s for s in {k.split('/')[0] for k in self.symbols}]
+        self.currencies.append(self.usd)
 
         self.usd_symbols = [k for k in self.symbols if k[-5:] in str('/' + self.usd)]
         self.usd_currencies = [k.split('/')[0] for k in self.usd_symbols]
 
-    @argkeeper
+    @checker
     def _get_amount(self, coin, amount):
         """
         Get coin amount.
@@ -130,7 +136,7 @@ class Panance(ccxt.binance):
         :param coin: the coin where amount will be returned.
         :param amount: a float or int with price, "max" word or a percentage like "10%"
         :type amount: str pr float or int
-        :return:
+        :return float: amount as countable item, this is as a float instance
         """
 
         if amount and isinstance(amount, str):
@@ -140,7 +146,8 @@ class Panance(ccxt.binance):
             if amount in 'max':
                 percent = 1.0
             elif len(amount) > 1 and amount[-1] in '%':
-                percent = float(amount[:-1]) / 100.
+                percent = float(amount[:-1])
+                percent /= 100.0
             else:
                 raise ValueError('Invalid amount.')
 
@@ -155,7 +162,7 @@ class Panance(ccxt.binance):
             raise ValueError('Invalid amount.')
         return amount
 
-    @argkeeper
+    @checker
     def _get_price(self, symbol, price):
         """
         Get price for a symbol.
@@ -178,7 +185,7 @@ class Panance(ccxt.binance):
         else:
             raise ValueError('Invalid price')
 
-    @argkeeper
+    @checker
     def _get_since(self, timeframe='15m', limit=100):
         """
         Return number of seconds resulting by doing:
@@ -192,29 +199,12 @@ class Panance(ccxt.binance):
         timeframe_mills = self.parse_timeframe(timeframe) * 1000.0
         return int(ccxt.Exchange.milliseconds() - timeframe_mills * limit)
 
-    @argkeeper
+    @checker
     def get_tickers(self, symbols=None, market=None):
         """
         Get all tickers (use market param to filter result by market).
 
-        >>> class  Ticker:
-        >>>     timestamp: int
-        >>>     datetime: int
-        >>>     high: float
-        >>>     low: float
-        >>>     bid: float
-        >>>     bidVolume: float
-        >>>     ask: float
-        >>>     askVolume: float
-        >>>     vwap: float
-        >>>     close: float
-        >>>     last: float
-        >>>     previousClose: float
-        >>>     change: float
-        >>>     percentage: float
-        >>>     average: float
-        >>>     baseVolume: float
-        >>>     quoteVolume: float
+
         :param list symbols: list of trade pairs
         :param str market: accepted values: BTC, USDT
         :return pd.DataFrame: ticker data filtered by market (if set)
@@ -233,13 +223,13 @@ class Panance(ccxt.binance):
                 raw = self.fetch_tickers(symbols)
             else:
                 raw = self.fetch_tickers()
-        except (apierr.RequestTimeout,) as err:
+        except (apierr.RequestTimeout, apierr.DDoSProtection, apierr.InvalidNonce) as err:
             print(str(err))
             return None
 
-        columns = [*[*raw.values()][0].keys()]
-        trasposed = zip(*[v.values() for v in raw.values()])
-        dict_data = dict(zip(columns, trasposed))
+        columns = [k for k in [k for k in raw.values()][0].keys()]
+        transposed = zip(k for k in [v.values() for v in raw.values()])
+        dict_data = dict(zip(columns, transposed))
         del dict_data['info'], dict_data['average'], dict_data['timestamp'], dict_data['datetime']
         df = pd.DataFrame(dict_data).dropna(axis=1)
         df = df.round(8).set_index('symbol')
@@ -248,7 +238,7 @@ class Panance(ccxt.binance):
             df = df.round(dict(bidVolume=3, askVolume=3, baseVolume=0, percentage=2, quoteVolume=2))
         return df.sort_values('quoteVolume', ascending=False)
 
-    @argkeeper
+    @checker
     def get_ticker(self, symbol):
         """
             Get ticker for symbol.
@@ -285,7 +275,7 @@ class Panance(ccxt.binance):
         del raw['info'], raw['symbol'], raw['average']
         return pd.DataFrame({symbol: raw})[symbol]
 
-    @argkeeper
+    @checker
     def get_ohlc(self, symbol, timeframe='5m', limit=100):
         """
         Get OHLC data for specific symbol and timeframe.
@@ -300,8 +290,13 @@ class Panance(ccxt.binance):
         since = self._get_since(timeframe=timeframe, limit=limit)
         try:
             data = self.fetch_ohlcv(symbol, timeframe=timeframe, since=since)
-        except (apierr.RequestTimeout,) as err:
+        except (apierr.RequestTimeout, apierr.InvalidNonce) as err:
             print(str(err))
+            tm.sleep(3)
+            return None
+        except (apierr.DDoSProtection,) as err:
+            print(str(err))
+            tm.sleep(15)
             return None
 
         seconds2datetime = partial(pd.to_datetime, unit='ms')
@@ -312,38 +307,72 @@ class Panance(ccxt.binance):
 
         return df
 
-    @argkeeper
+    @checker
     def get_balances(self, coin=None, detailed=False):
         """
         Get balance data.
 
         :param str coin: if set only data for currency "coin" will be returned
-        :param bool detailed: if True detailed data will be added to result
+        :param detailed: if True detailed data will be added to result
+        :type detailed: bool
         :return pd.DataFrame: balance data
         """
 
         try:
             raw = self.fetch_balance()
-        except (apierr.RequestTimeout,) as err:
+        except (apierr.RequestTimeout, apierr.InvalidNonce, apierr.RequestTimeout) as err:
             print(str(err))
             return None
 
         [raw.pop(f) for f in ['total', 'used', 'free', 'info'] if f in raw]
         df = pd.DataFrame(raw).T.query('total > 0.0').T
 
+        result = pd.DataFrame()
+
         if detailed:
+            symbols = ['BTC/USDT']
 
-            tickers = self.get_tickers(symbols=['{}/BTC'.format(c) for c in [*df.keys()]])
-            for s in tickers.keys():
-                quote, base = s.split('/')
-                last = tickers[s]['last']
-                df[quote]['total_btc'] = df[quote]['total'] * last
-        if coin:
-            return df[coin].fillna(0.0) if coin in df else pd.DataFrame()
+            if all((coin is not None, str(coin).upper() in self.currencies, str(coin).upper() not in ['BTC', 'USDT'])):
+                symbols.append('{}/BTC'.format(coin))
+            else:
+                for c in df.keys():
+                    if c not in ['BTC', 'USDT']:
+                        symbols.append('{}/BTC'.format(c))
+
+            tickers = self.get_tickers(symbols=symbols)
+            if tickers is not None:
+                tickers = tickers.T
+            else:
+                print(' - [ERROR] Server return None for ticker data.')
+                sys.exit(1)
+            btc_usdt_last = tickers['BTC/USDT']['last']
+
+            for s in symbols:
+                c, b = s.split('/')
+                c_balance = df[c]
+                coin_total = c_balance['total']
+
+                if c in ['USDT', 'BTC']:
+                    c_balance['total_{}'.format(c.lower())] = coin_total
+
+                    if 'USDT' in c:
+                        c_balance['total_btc'] = coin_total / btc_usdt_last
+                    else:
+                        c_balance['total_usdt'] = btc_usdt_last * c_balance['total_btc']
+                else:
+                    ticker = tickers['{}/BTC'.format(c)]
+                    c_balance['total_btc'] = coin_total * ticker['last']
+                    c_balance['total_usdt'] = c_balance['total_btc'] * btc_usdt_last
+                result = result.append(c_balance)
         else:
-            return df.fillna(0.0)
+            result = df
 
-    @argkeeper
+        if all((coin is not None, str(coin).upper() in self.currencies, str(coin).upper() in result.T)):
+            result = result.T[str(coin).upper()]
+
+        return result.fillna(0.0)
+
+    @checker
     def get_aggregated_trades(self, symbol, from_id=None, start=None, end=None, limit=500):
         """
         Get aggregated trades for a symbol.
@@ -386,7 +415,7 @@ class Panance(ccxt.binance):
             df['amount'] = df['amount'].apply(float)
             df['first_id'] = df['first_id'].apply(int)
             df['last_id'] = df['last_id'].apply(int)
-            f = df['first_id'][0]
+            df = df['first_id'][0]
             df.set_index('timestamp', inplace=True)
             grouped = pd.DataFrame()
             grouped['price'] = df.price.groupby(pd.Grouper(freq='1s')).mean().apply(round, args=(8,))
@@ -396,7 +425,7 @@ class Panance(ccxt.binance):
         else:
             response.raise_for_status()
 
-    @argkeeper
+    @checker
     def get_trades(self, symbol, limit=100, side=None, from_id=None):
         """
         Get last symbol trades.
@@ -418,7 +447,8 @@ class Panance(ccxt.binance):
         result = self._parse_trades(raw, side)
         return result
 
-    def _parse_trades(self, raw, side=None):
+    @staticmethod
+    def _parse_trades(raw, side=None):
         """
         Parse trades data.
 
@@ -442,7 +472,7 @@ class Panance(ccxt.binance):
             trades['fee_percent'] = trades.T.apply(lambda v: 0.05 if 'BNB' in v['fee_currency'] else 0.1).T
             trades['fee_base'] = trades['fee_percent'] / 100. * trades['cost']
             trades['total'] = trades.T.apply(
-                lambda v: v['cost'] - v['fee_base'] if v['side'] in 'sell' else v['cost'] + v['fee_base']).T
+                    lambda v: v['cost'] - v['fee_base'] if v['side'] in 'sell' else v['cost'] + v['fee_base']).T
 
         else:
             trades = trades.drop(['takerOrMaker', 'order'], axis=1)
@@ -451,7 +481,7 @@ class Panance(ccxt.binance):
 
         return trades.set_index('id')
 
-    @argkeeper
+    @checker
     def get_user_trades(self, symbol, limit=100, side=None):
         """
         Get last user trades for a symbol.
@@ -467,9 +497,9 @@ class Panance(ccxt.binance):
         except (apierr.RequestTimeout,) as err:
             print(str(err))
             return None
-        return self._parse_trades(raw, side) if raw else pd.DataFrame()
+        return self._parse_trades(raw=raw, side=side) if raw else pd.DataFrame()
 
-    @argkeeper
+    @checker
     def get_profit(self, coin):
         """
         Returns current profit for a currency and its weighted average buy cost
@@ -477,18 +507,23 @@ class Panance(ccxt.binance):
         :return: current profit and weighted average buy cost as a tuple
         """
 
+        if str(coin).upper() not in self.currencies:
+            print('[ERROR] {} is not a valid currency.'.format(str(coin).upper()))
+            sys.exit(1)
+        else:
+            coin = str(coin).upper()
         btc_symbol = '{}/BTC'.format(coin)
-        balance = self.get_balances(coin, detailed=True)
+        balance = self.get_balances(coin=coin, detailed=True)
 
-        if all((balance is not None, not balance.empty)) and balance['total_btc'] > 0.0:
+        if all((balance is not None, not balance.empty, balance['total_btc'] > 0.0)):
 
-            real_cost = self.get_weighted_average_cost(btc_symbol)
+            real_cost = self.get_weighted_average_cost(symbol=btc_symbol)
             coin_ticker = self.get_ticker(btc_symbol)['last']
-            return cnum((coin_ticker * balance.total) - (real_cost * balance.total), 8), cnum(real_cost, 8)
+            return cnum((coin_ticker * balance.total) - (real_cost * balance['total']), 8), cnum(real_cost, 8)
         else:
             return 0.0, 0.0
 
-    @argkeeper
+    @checker
     def get_weighted_average_cost(self, symbol):
         """
         Get weighted average buy cost for a symbol.
@@ -497,38 +532,47 @@ class Panance(ccxt.binance):
         :return float: weighted average cost (0.0 if currency not in balance)
         """
 
-        coin, exchange = symbol.split('/')
-        balances = self.get_balances(coin=coin, detailed=True)
-        if all((balances is not None, not balances.empty)) and balances['total_btc'] > 0.0:
-            last_symbol_user_trades = self.get_user_trades(symbol)
-            last_symbol_user_trades.dropna(axis=1, inplace=True)
-            if not is_empty(last_symbol_user_trades):
-                amounts = list()
-                balance = balances['total']
-                if 'id' in last_symbol_user_trades:
-                    last_symbol_user_trades = last_symbol_user_trades.sort_values(ascending=False)
+        quote, base = str(symbol).upper().split('/')
+
+        balances = self.get_balances(coin=quote, detailed=True)
+
+        if all((balances is not None, not balances.empty)):
+
+            if balances['total_btc'] >= 0.001:
+
+                last_symbol_user_trades = self.get_user_trades(symbol, side='buy')
+                last_symbol_user_trades.sort_values(by='datetime', ascending=False, inplace=True)
+
+                if not is_empty(last_symbol_user_trades):
+                    amounts = list()
+                    balance = balances['total']
+
+                    for amount in last_symbol_user_trades.query('side == "buy"').amount:
+                        if balance - amount <= 0.0:
+                            amounts.append(balance)
+                            break
+                        else:
+                            balance -= amount
+                            amounts.append(amount)
+
+                    prices = last_symbol_user_trades.price.values[:len(amounts)]
+
+                    return cnum(np.average(prices, weights=amounts), 8)
                 else:
-                    last_symbol_user_trades = last_symbol_user_trades.sort_index(ascending=False)
-                for amount in last_symbol_user_trades.query('side == "buy"').amount:
-                    if balance - amount <= 0.0:
-                        amounts.append(balance)
-                        break
-                    else:
-                        balance -= amount
-                        amounts.append(amount)
-                prices = last_symbol_user_trades.price.values[:len(amounts)]
-
-                return cnum(np.average(prices, weights=amounts), 8)
+                    print(' - [ERROR] Balance returned by server is not valid.')
             else:
-                return 0.0
+                print(' - [ERROR] Not enough balance returned by server is not valid.')
         else:
-            return 0.0
+            print(' - [ERROR] Balance returned by server is not valid.')
+        return -1.0
 
-    @argkeeper
-    def get_depth(self, symbol, limit=5, splitted=False):
+    @checker
+    def get_depth(self, symbol, limit=5, split=False):
         """
         Get order book data for a symbol.
 
+        :param split:
+        :type split:
         :param str symbol: a valid slash separated trade pair
         :param int limit: result rows limit
         :return pd.DataFrame: data frame with depth row for a symbol.
@@ -542,13 +586,13 @@ class Panance(ccxt.binance):
 
         data = pd.DataFrame(raw)
 
-        if splitted:
+        if split:
             return data['asks'], data['bids']
         else:
             rows = pd.DataFrame(data['asks'] + data['bids'])
             return pd.DataFrame(sum(rows.values.tolist(), []), columns=['ask', 'ask_amount', 'bid', 'bid_amount'])
 
-    @argkeeper
+    @checker
     def get_asks(self, symbol, limit=10):
         """
         Return asks data from order book for a symbol.
@@ -565,7 +609,7 @@ class Panance(ccxt.binance):
 
         return pd.DataFrame(raw['asks'], columns=['ask', 'amount'])
 
-    @argkeeper
+    @checker
     def get_bids(self, symbol, limit=10):
         """
         Return bids data from order book for a symbol.
@@ -577,13 +621,13 @@ class Panance(ccxt.binance):
 
         try:
             raw = self.fetch_order_book(symbol, limit=limit)
-        except (apierr.RequestTimeout,) as err:
+        except (apierr.RequestTimeout, apierr.InvalidNonce) as err:
             print(str(err))
             return None
 
         return pd.DataFrame(raw['bids'], columns=['bid', 'amount'])
 
-    @argkeeper
+    @checker
     def market_buy(self, symbol, amount='max'):
         """
         Place a market buy order.
@@ -595,12 +639,12 @@ class Panance(ccxt.binance):
 
         try:
             order_data = self.create_market_buy_order(symbol, amount=amount)
-        except (apierr.RequestTimeout,) as err:
+        except (apierr.RequestTimeout, apierr.InvalidNonce, apierr.InsufficientFunds) as err:
             print(str(err))
             return None
         return order_data
 
-    @argkeeper
+    @checker
     def market_sell(self, symbol, amount='max'):
         """
         Place a market sell order.
@@ -612,12 +656,12 @@ class Panance(ccxt.binance):
 
         try:
             order_data = self.create_market_buy_order(symbol, amount=amount)
-        except (apierr.RequestTimeout,) as err:
+        except (apierr.RequestTimeout, apierr.InsufficientFunds, apierr.InvalidNonce) as err:
             print(str(err))
             return None
         return order_data
 
-    @argkeeper
+    @checker
     def limit_buy(self, symbol, amount='max', price='ask'):
         """
         Place a limit buy order.
@@ -629,17 +673,16 @@ class Panance(ccxt.binance):
         """
         base, quote = symbol.split('/')
         amount = self._get_amount(quote, amount)
-        assert amount is not None and isinstance(amount, float)
         price = self._get_price(symbol, price)
-        assert amount is not None and isinstance(amount, float)
+
         try:
-            order_data = self.create_limit_buy_order(symbol, amount / price, price)
+            order_data = self.create_limit_buy_order(symbol, amount, price)
         except (apierr.RequestTimeout,) as err:
             print(str(err))
             return None
         return order_data
 
-    @argkeeper
+    @checker
     def limit_sell(self, symbol, amount='max', price='bid'):
         """
         Place a limit sell order.
@@ -651,9 +694,8 @@ class Panance(ccxt.binance):
         """
         base, quote = symbol.split('/')
         amount = self._get_amount(base, amount)
-        assert amount is not None and isinstance(amount, float)
         price = self._get_price(symbol, price)
-        assert price is not None and isinstance(price, float)
+
         try:
             order_data = self.create_limit_sell_order(symbol, amount, price)
         except (apierr.RequestTimeout,) as err:
@@ -661,7 +703,7 @@ class Panance(ccxt.binance):
             return None
         return order_data
 
-    @argkeeper
+    @checker
     def download_trade_history(self, symbol, limit=500, start=None, end=None, from_id=None):
         """
         FIXIT not full implemented
@@ -673,7 +715,8 @@ class Panance(ccxt.binance):
         :param from_id:
         """
 
-        if from_id: from_id = from_id
+        if from_id:
+            from_id = from_id
         start = int(start) if start else int(tm.time() * 1000.0)
         end = int(end) if end else int(tm.time() * 1000.0)
 

@@ -1,11 +1,13 @@
 # -*- coding:utf-8 -*-
 from setuptools import setup, find_packages
 
-from panance import (__version__, __author__, __appname__, __dependencies__, __description__, __license__, __site__,
-                     __email__)
+from panance import (
+    __version__, __author__, __package__, __requirements__, __description__, __license__, __site__,
+    __email__
+)
 
 setup(
-    name=__appname__,
+        name=__package__,
     version=__version__,
     packages=find_packages(exclude=['doc*', 'test*', 'venv*']),
     url=__site__,
@@ -20,5 +22,5 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7'
-    ], install_requires=__dependencies__
+    ], install_requires=__requirements__
 )

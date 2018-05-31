@@ -19,8 +19,8 @@
     "fee": {                      // fee info, if available
         "currency": "BTC",        // which currency the fee is (usually quote)
         "cost": 0.0009,           // the fee amount in that currency
-        "rate": 0.002,            // the fee rate (if available)
+        "rate": 0.002             // the fee rate (if available)
     },
-    "info": { ... },              // the original unparsed order structure as is
+    "info": {  }                  // the original unparsed order structure as is
 }
 ```
