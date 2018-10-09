@@ -27,7 +27,7 @@ warnings.filterwarnings(action='ignore', category=FutureWarning)
 
 __version__ = '0.1.6'
 __author__ = 'Daniel J. Umpierrez'
-__license__ = 'MIT'
+__license__ = 'UNLICENSE'
 __package__ = 'panance'
 __description__ = 'Python 3 Binance API wrapper built over Pandas Library'
 __site__ = 'https://github.com/havocesp/panance'
