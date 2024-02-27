@@ -84,7 +84,7 @@ def checker(fn, *args, **kwargs):
                 if self.symbols is None or not len(self.symbols):
                     self.load_markets(True)
 
-                if not all([any((s not in self.currencies, s not in self.symbols)) for s in symbol_list]):
+                if not all(any((s not in self.currencies, s not in self.symbols)) for s in symbol_list):
                     raise ValueError(
                             'There is a not a valid currency or symbol in function params: {}'.format(symbol_list))
 
