@@ -18,6 +18,7 @@ from ccxt.base import errors as apierr
 from decorator import decorator
 
 from panance.utils import cnum, is_empty
+from security import safe_requests
 
 BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(BASE_DIR)
@@ -400,7 +401,7 @@ class Panance(ccxt.binance):
         if limit != 500:
             url += '&limit={:d}'.format(limit)
         try:
-            response = req.get(url)
+            response = safe_requests.get(url)
         except (req.RequestException,) as err:
             print(str(err))
             return None
